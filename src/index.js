@@ -1,10 +1,15 @@
 import asArray from 'as-array'
 
+import api from 'services/api'
 import config from 'infrastructure/config'
 import { createConsumer } from 'services/work-queue/consumer'
 import { createProducer } from 'services/work-queue/producer'
 
 import * as handlers from './handlers'
+
+let idleTime = new Date().toISOString()
+let workingTime = new Date().toISOString()
+let stateWorker = 'init'
 
 const HANDLERS = {
   'CHECK_INFRASTRUCTURE': handlers.checkInfrastructure,
@@ -30,6 +35,26 @@ const handleJob = async (job) => {
     // return job untouched
     return job
   }
+
+  if (stateWorker !== 'working') {
+    console.log('JOB WORKING')
+
+    workingTime = new Date().toISOString()
+
+    await api.call(
+      'post',
+      `/jobs/logs`,
+      {
+        time: new Date().toISOString(),
+        state: 'working',
+        lastState: stateWorker,
+        lastTime: idleTime
+      }
+    )
+
+    stateWorker = 'working'
+  }
+
 
   return await handler(job)
 }
@@ -67,6 +92,25 @@ const main = async () => {
 
     if (nextJobs && nextJobs.length) {
       await sendJobs(nextJobs)
+
+      if (stateWorker !== 'idle') {
+        console.log('JOB IDLE')
+
+        idleTime = new Date().toISOString()
+
+        await api.call(
+          'post',
+          `/jobs/logs`,
+          {
+            time: new Date().toISOString(),
+            state: 'idle',
+            lastState: stateWorker,
+            lastTime: workingTime
+          }
+        )
+
+        stateWorker = 'idle'
+      }
     }
   })
 
